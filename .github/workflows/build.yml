@@ -13,60 +13,90 @@ permissions:
 
 jobs:
   build:
-    name: Compile ShizuPosed
+    name: Build ShizuPosed Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
-      # 1. Download repository source
-      - name: Checkout repository
+      # 1. Checkout repository
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 2. Install Java 21
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      # 2. Install JDK 25
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       # 3. Configure Android SDK
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: ''
 
-      # 4. Install required Android SDK components
+      # 4. Install Android SDK platform 37.0
       - name: Install Android SDK components
+        shell: bash
         run: |
+          set -e
+
+          echo "Checking available Android SDK platforms..."
+
+          sdkmanager --list --channel=3 > sdk-packages.txt
+
+          if grep -q 'platforms;android-37\.0' sdk-packages.txt; then
+            echo "Installing Android API 37.0..."
+            sdkmanager --install --channel=3 \
+              "platforms;android-37.0"
+          elif grep -q 'platforms;android-37 ' sdk-packages.txt; then
+            echo "Installing Android API 37..."
+            sdkmanager --install --channel=3 \
+              "platforms;android-37"
+          else
+            echo "ERROR: Android API 37 platform not found."
+            cat sdk-packages.txt
+            exit 1
+          fi
+
+          echo "Installing Android Build Tools..."
           sdkmanager --install \
-            "platforms;android-37" \
             "build-tools;36.0.0"
 
-      # 5. Configure Gradle 9.8.2
-      - name: Set up Gradle
+          echo "Accepting Android SDK licenses..."
+          yes | sdkmanager --licenses || true
+
+      # 5. Configure Gradle
+      - name: Set up Gradle 9.8.0
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.8.2'
+          gradle-version: '9.8.0'
 
-      # 6. Verify build environment
-      - name: Check build environment
+      # 6. Verify environment
+      - name: Verify build environment
         run: |
           java -version
           gradle --version
-          sdkmanager --list_installed
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms"
+          ls "$ANDROID_HOME/build-tools"
 
-      # 7. Compile ShizuPosed
-      - name: Build Debug APK
+      # 7. Build ShizuPosed
+      - name: Compile ShizuPosed Debug APK
         run: |
           gradle clean :app:assembleDebug --no-daemon
 
-      # 8. Verify APK output
+      # 8. Verify generated APK
       - name: Verify APK
         run: |
-          ls -lh app/build/outputs/apk/debug/
-          test -f app/build/outputs/apk/debug/app-debug.apk
+          APK="app/build/outputs/apk/debug/app-debug.apk"
 
-      # 9. Upload APK to GitHub Actions
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+      # 9. Upload APK
       - name: Upload ShizuPosed APK
         uses: actions/upload-artifact@v4
         with:
